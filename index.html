@@ -1195,13 +1195,18 @@
             document.getElementById('clearAllBtn').addEventListener('click', clearAllTasks);
             
             // Share, Settings, Auth
-            document.getElementById('shareBtn').addEventListener('click', openShareModal);
-            document.getElementById('settingsBtn').addEventListener('click', openSettingsModal);
+            const shareBtn = document.getElementById('shareBtn');
+            if (shareBtn) shareBtn.addEventListener('click', openShareModal);
+            const settingsBtn = document.getElementById('settingsBtn');
+            if (settingsBtn) settingsBtn.addEventListener('click', openSettingsModal);
             
             // New features
-            document.getElementById('pomodoroBtn').addEventListener('click', openPomodoroModal);
-            document.getElementById('calendarBtn').addEventListener('click', openCalendarModal);
-            document.getElementById('analyticsBtn').addEventListener('click', openAnalyticsModal);
+            const pomodoroBtn = document.getElementById('pomodoroBtn');
+            if (pomodoroBtn) pomodoroBtn.addEventListener('click', openPomodoroModal);
+            const calendarBtn = document.getElementById('calendarBtn');
+            if (calendarBtn) calendarBtn.addEventListener('click', openCalendarModal);
+            const analyticsBtn = document.getElementById('analyticsBtn');
+            if (analyticsBtn) analyticsBtn.addEventListener('click', openAnalyticsModal);
             
             // Initialize Firebase if configured
             initFirebase();
@@ -1831,6 +1836,12 @@
         window.closeAnalyticsModal = closeAnalyticsModal;
         
         window.app = { toggleTask, editTask, confirmDelete };
+        
+        console.log('[TaskFlow] All functions exposed to window:', {
+            signInWithGitHub: typeof window.signInWithGitHub,
+            openSettingsModal: typeof window.openSettingsModal,
+            closeSettingsModal: typeof window.closeSettingsModal
+        });
 
         // Start
         init();
