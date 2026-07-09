@@ -1285,7 +1285,9 @@
             if (!config || !config.apiKey) return;
             
             try {
-                if (firebaseApp) firebase.app().delete();
+                if (firebaseApp) {
+                    try { firebaseApp.delete(); } catch(e) {}
+                }
                 firebaseApp = firebase.initializeApp(config);
                 firebase.auth().onAuthStateChanged(user => {
                     currentUser = user;
@@ -1301,6 +1303,8 @@
                 updateSyncStatus();
             } catch(e) {
                 console.error('Firebase init error:', e);
+                isFirebaseReady = false;
+                firebaseApp = null;
                 showToast('Firebase 初始化失败: ' + e.message, 'error');
             }
         };
@@ -1313,6 +1317,14 @@
             } catch(e) { showToast('登录失败: ' + e.message, 'error'); }
         };
         
+        const signInAnonymously = async () => {
+            if (!isFirebaseReady) { showToast('请先配置 Firebase', 'error'); openSettingsModal(); return; }
+            try {
+                await firebase.auth().signInAnonymously();
+                showToast('已自动登录，任务将同步到云端');
+            } catch(e) { showToast('登录失败: ' + e.message, 'error'); }
+        };
+        
         const signOut = async () => {
             try { await firebase.auth().signOut(); showToast('已退出登录'); } 
             catch(e) { showToast('退出失败: ' + e.message, 'error'); }
@@ -1322,15 +1334,16 @@
             const area = document.getElementById('userAuthArea');
             if (!area) return;
             if (currentUser) {
-                const photo = currentUser.photoURL || 'https://github.com/identicons/' + (currentUser.uid || 'default') + '.png';
-                const name = currentUser.displayName || currentUser.email || 'User';
+                const isAnonymous = currentUser.isAnonymous;
+                const photo = isAnonymous ? 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + currentUser.uid : (currentUser.photoURL || 'https://github.com/identicons/' + (currentUser.uid || 'default') + '.png');
+                const name = isAnonymous ? '访客用户' : (currentUser.displayName || currentUser.email || 'User');
                 area.innerHTML = `<div class="flex items-center gap-2">
                     <img src="${photo}" class="w-8 h-8 rounded-full border border-slate-200" onerror="this.src='https://github.com/identicons/default.png'">
                     <span class="text-sm font-medium text-slate-700 hidden sm:inline">${name}</span>
                     <button onclick="signOut()" class="text-xs text-slate-400 hover:text-slate-600 ml-1"><i class="fas fa-sign-out-alt"></i></button>
                 </div>`;
             } else {
-                area.innerHTML = `<button onclick="signInWithGitHub()" class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-slate-800 rounded-lg hover:bg-slate-900 transition-all"><i class="fab fa-github"></i><span>登录</span></button>`;
+                area.innerHTML = `<button onclick="signInAnonymously()" class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-blue-500 to-indigo-600 rounded-lg hover:from-blue-600 hover:to-indigo-700 transition-all"><i class="fas fa-cloud"></i><span>同步登录</span></button>`;
             }
         };
         
@@ -1821,6 +1834,7 @@
         
         // Expose modal & feature functions for HTML onclick handlers
         window.signInWithGitHub = signInWithGitHub;
+        window.signInAnonymously = signInAnonymously;
         window.signOut = signOut;
         window.openSettingsModal = openSettingsModal;
         window.closeSettingsModal = closeSettingsModal;
