@@ -6,6 +6,12 @@
     <title>TaskFlow - 任务管理系统</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
         
@@ -161,16 +167,42 @@
                     </div>
                 </div>
                 <div class="flex items-center gap-3">
+                    <!-- Sync Status -->
+                    <div id="syncStatus" class="hidden items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-500 bg-slate-50 rounded-lg border border-slate-200">
+                        <i class="fas fa-cloud text-slate-400"></i>
+                        <span id="syncStatusText">本地</span>
+                    </div>
+                    <!-- Share Button -->
+                    <button id="shareBtn" class="hidden sm:flex items-center gap-2 px-4 py-2 text-sm text-indigo-600 hover:text-indigo-700 bg-indigo-50 rounded-lg border border-indigo-200 hover:border-indigo-300 transition-all">
+                        <i class="fas fa-share-alt"></i>
+                        <span>分享</span>
+                    </button>
+                    <!-- Export/Import -->
                     <button id="exportBtn" class="hidden sm:flex items-center gap-2 px-4 py-2 text-sm text-slate-600 hover:text-slate-800 bg-white rounded-lg border border-slate-200 hover:border-slate-300 transition-all">
                         <i class="fas fa-download"></i>
                         <span>导出</span>
+                    </button>
+                    <button id="importBtn" class="hidden sm:flex items-center gap-2 px-4 py-2 text-sm text-slate-600 hover:text-slate-800 bg-white rounded-lg border border-slate-200 hover:border-slate-300 transition-all">
+                        <i class="fas fa-upload"></i>
+                        <span>导入</span>
                     </button>
                     <button id="clearAllBtn" class="hidden sm:flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:text-red-700 bg-red-50 rounded-lg border border-red-200 hover:border-red-300 transition-all">
                         <i class="fas fa-trash-alt"></i>
                         <span>清空</span>
                     </button>
                     <div class="w-px h-8 bg-slate-200 hidden sm:block"></div>
-                    <div class="text-right">
+                    <!-- User Auth -->
+                    <div id="userAuthArea" class="flex items-center gap-2">
+                        <button id="loginBtn" class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-slate-800 rounded-lg hover:bg-slate-900 transition-all">
+                            <i class="fab fa-github"></i>
+                            <span>登录</span>
+                        </button>
+                    </div>
+                    <!-- Settings -->
+                    <button id="settingsBtn" class="w-9 h-9 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all">
+                        <i class="fas fa-cog text-lg"></i>
+                    </button>
+                    <div class="text-right hidden md:block">
                         <p id="currentDate" class="text-sm font-medium text-slate-700"></p>
                         <p id="greeting" class="text-xs text-slate-500"></p>
                     </div>
@@ -1122,7 +1154,15 @@
             
             // Export & Clear
             document.getElementById('exportBtn').addEventListener('click', exportTasks);
+            document.getElementById('importBtn').addEventListener('click', openImportModal);
             document.getElementById('clearAllBtn').addEventListener('click', clearAllTasks);
+            
+            // Share, Settings, Auth
+            document.getElementById('shareBtn').addEventListener('click', openShareModal);
+            document.getElementById('settingsBtn').addEventListener('click', openSettingsModal);
+            
+            // Initialize Firebase if configured
+            initFirebase();
             
             // Keyboard shortcuts
             document.addEventListener('keydown', (e) => {
@@ -1147,9 +1187,382 @@
         // Expose API
         window.app = { toggleTask, editTask, confirmDelete };
         
+
+        // =====================
+        // Firebase Configuration & Sync
+        // =====================
+        let firebaseApp = null;
+        let currentUser = null;
+        let isFirebaseReady = false;
+        
+        const FIREBASE_CONFIG_KEY = 'taskflow_firebase_config';
+        const SHARED_TASKS_KEY = 'taskflow_shared_tasks';
+        
+        const getFirebaseConfig = () => {
+            try { return JSON.parse(localStorage.getItem(FIREBASE_CONFIG_KEY)) || null; } catch(e) { return null; }
+        };
+        
+        const saveFirebaseConfig = () => {
+            const config = {
+                apiKey: document.getElementById('fbApiKey').value.trim(),
+                authDomain: document.getElementById('fbAuthDomain').value.trim(),
+                projectId: document.getElementById('fbProjectId').value.trim(),
+                storageBucket: document.getElementById('fbStorageBucket').value.trim(),
+                messagingSenderId: document.getElementById('fbMessagingSenderId').value.trim(),
+                appId: document.getElementById('fbAppId').value.trim()
+            };
+            if (!config.apiKey || !config.projectId) {
+                showToast('请至少填写 API Key 和 Project ID', 'error'); return;
+            }
+            localStorage.setItem(FIREBASE_CONFIG_KEY, JSON.stringify(config));
+            showToast('Firebase 配置已保存');
+            initFirebase();
+            closeSettingsModal();
+        };
+        
+        const clearFirebaseConfig = () => {
+            localStorage.removeItem(FIREBASE_CONFIG_KEY);
+            document.querySelectorAll('#settingsModal input').forEach(i => i.value = '');
+            showToast('Firebase 配置已清除');
+            isFirebaseReady = false;
+            currentUser = null;
+            updateAuthUI();
+            updateSyncStatus();
+        };
+        
+        const initFirebase = () => {
+            const config = getFirebaseConfig();
+            if (!config || !config.apiKey) return;
+            
+            try {
+                if (firebaseApp) firebase.app().delete();
+                firebaseApp = firebase.initializeApp(config);
+                firebase.auth().onAuthStateChanged(user => {
+                    currentUser = user;
+                    updateAuthUI();
+                    if (user) {
+                        showToast('已登录: ' + (user.displayName || user.email || 'GitHub 用户'));
+                        loadFromFirestore();
+                    } else {
+                        updateSyncStatus();
+                    }
+                });
+                isFirebaseReady = true;
+                updateSyncStatus();
+            } catch(e) {
+                console.error('Firebase init error:', e);
+                showToast('Firebase 初始化失败: ' + e.message, 'error');
+            }
+        };
+        
+        const signInWithGitHub = async () => {
+            if (!isFirebaseReady) { showToast('请先配置 Firebase', 'error'); openSettingsModal(); return; }
+            try {
+                const provider = new firebase.auth.GithubAuthProvider();
+                await firebase.auth().signInWithPopup(provider);
+            } catch(e) { showToast('登录失败: ' + e.message, 'error'); }
+        };
+        
+        const signOut = async () => {
+            try { await firebase.auth().signOut(); showToast('已退出登录'); } 
+            catch(e) { showToast('退出失败: ' + e.message, 'error'); }
+        };
+        
+        const updateAuthUI = () => {
+            const area = document.getElementById('userAuthArea');
+            if (!area) return;
+            if (currentUser) {
+                const photo = currentUser.photoURL || 'https://github.com/identicons/' + (currentUser.uid || 'default') + '.png';
+                const name = currentUser.displayName || currentUser.email || 'User';
+                area.innerHTML = \`<div class="flex items-center gap-2">
+                    <img src="\${photo}" class="w-8 h-8 rounded-full border border-slate-200" onerror="this.src='https://github.com/identicons/default.png'">
+                    <span class="text-sm font-medium text-slate-700 hidden sm:inline">\${name}</span>
+                    <button onclick="signOut()" class="text-xs text-slate-400 hover:text-slate-600 ml-1"><i class="fas fa-sign-out-alt"></i></button>
+                </div>\`;
+            } else {
+                area.innerHTML = \`<button onclick="signInWithGitHub()" class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-slate-800 rounded-lg hover:bg-slate-900 transition-all"><i class="fab fa-github"></i><span>登录</span></button>\`;
+            }
+        };
+        
+        const updateSyncStatus = () => {
+            const el = document.getElementById('syncStatus');
+            const text = document.getElementById('syncStatusText');
+            if (!el || !text) return;
+            if (!isFirebaseReady) { el.classList.add('hidden'); el.classList.remove('flex'); return; }
+            el.classList.remove('hidden'); el.classList.add('flex');
+            if (currentUser) { text.textContent = '已同步'; text.className = 'text-green-600'; }
+            else { text.textContent = '未登录'; text.className = 'text-amber-600'; }
+        };
+        
+        // Save tasks to Firestore
+        const saveToFirestore = async () => {
+            if (!isFirebaseReady || !currentUser) return;
+            try {
+                await firebase.firestore().collection('users').doc(currentUser.uid).collection('tasks').doc('data').set({
+                    tasks: tasks,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                updateSyncStatus();
+            } catch(e) { console.error('Firestore save error:', e); }
+        };
+        
+        // Load tasks from Firestore
+        const loadFromFirestore = async () => {
+            if (!isFirebaseReady || !currentUser) return;
+            try {
+                const doc = await firebase.firestore().collection('users').doc(currentUser.uid).collection('tasks').doc('data').get();
+                if (doc.exists) {
+                    const data = doc.data();
+                    if (data && data.tasks) {
+                        tasks = data.tasks;
+                        saveTasks(); // Also save to localStorage
+                        renderTasks();
+                        updateStats();
+                        showToast('已从云端同步任务');
+                    }
+                }
+                updateSyncStatus();
+            } catch(e) { showToast('同步失败: ' + e.message, 'error'); }
+        };
+        
+        // Override saveTasks to also sync to Firestore
+        const originalSaveTasks = saveTasks;
+        saveTasks = () => {
+            originalSaveTasks();
+            saveToFirestore();
+        };
+        
+        // =====================
+        // Share via URL
+        // =====================
+        const generateShareUrl = () => {
+            if (!tasks.length) { showToast('没有任务可分享', 'error'); return; }
+            try {
+                const json = JSON.stringify(tasks);
+                const encoded = btoa(encodeURIComponent(json));
+                const url = window.location.origin + window.location.pathname + '?share=' + encoded;
+                return url;
+            } catch(e) { showToast('生成分享链接失败', 'error'); return null; }
+        };
+        
+        const openShareModal = () => {
+            const url = generateShareUrl();
+            if (!url) return;
+            document.getElementById('shareUrl').value = url;
+            document.getElementById('qrcode').innerHTML = '';
+            new QRCode(document.getElementById('qrcode'), { text: url, width: 150, height: 150 });
+            document.getElementById('shareModal').classList.remove('hidden');
+        };
+        
+        const closeShareModal = () => { document.getElementById('shareModal').classList.add('hidden'); };
+        
+        const copyShareUrl = () => {
+            const input = document.getElementById('shareUrl');
+            input.select(); input.setSelectionRange(0, 99999);
+            navigator.clipboard.writeText(input.value).then(() => showToast('链接已复制到剪贴板'));
+        };
+        
+        // =====================
+        // Import/Export JSON
+        // =====================
+        const openImportModal = () => { document.getElementById('importModal').classList.remove('hidden'); };
+        const closeImportModal = () => { document.getElementById('importModal').classList.add('hidden'); };
+        
+        const handleImportFile = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const imported = JSON.parse(event.target.result);
+                    if (!Array.isArray(imported)) throw new Error('Invalid format');
+                    const mode = document.querySelector('input[name="importMode"]:checked').value;
+                    if (mode === 'replace') {
+                        tasks = imported;
+                    } else {
+                        tasks = [...tasks, ...imported];
+                    }
+                    saveTasks();
+                    renderTasks();
+                    updateStats();
+                    closeImportModal();
+                    showToast('成功导入 ' + imported.length + ' 个任务');
+                } catch(err) { showToast('导入失败: ' + err.message, 'error'); }
+            };
+            reader.readAsText(file);
+        };
+        
+        // =====================
+        // Settings Modal
+        // =====================
+        const openSettingsModal = () => {
+            const config = getFirebaseConfig();
+            if (config) {
+                document.getElementById('fbApiKey').value = config.apiKey || '';
+                document.getElementById('fbAuthDomain').value = config.authDomain || '';
+                document.getElementById('fbProjectId').value = config.projectId || '';
+                document.getElementById('fbStorageBucket').value = config.storageBucket || '';
+                document.getElementById('fbMessagingSenderId').value = config.messagingSenderId || '';
+                document.getElementById('fbAppId').value = config.appId || '';
+            }
+            document.getElementById('settingsModal').classList.remove('hidden');
+        };
+        const closeSettingsModal = () => { document.getElementById('settingsModal').classList.add('hidden'); };
+        
+        // =====================
+        // Shared Import from URL
+        // =====================
+        let sharedTasksData = null;
+        
+        const checkSharedUrl = () => {
+            const params = new URLSearchParams(window.location.search);
+            const share = params.get('share');
+            if (share) {
+                try {
+                    sharedTasksData = JSON.parse(decodeURIComponent(atob(share)));
+                    if (Array.isArray(sharedTasksData) && sharedTasksData.length > 0) {
+                        document.getElementById('sharedImportModal').classList.remove('hidden');
+                    }
+                } catch(e) { console.error('Invalid share data:', e); }
+            }
+        };
+        
+        const importSharedTasks = () => {
+            if (!sharedTasksData) return;
+            tasks = [...tasks, ...sharedTasksData];
+            saveTasks();
+            renderTasks();
+            updateStats();
+            closeSharedImportModal();
+            showToast('成功导入 ' + sharedTasksData.length + ' 个共享任务');
+            sharedTasksData = null;
+            // Clean URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+        };
+        
+        const closeSharedImportModal = () => {
+            document.getElementById('sharedImportModal').classList.add('hidden');
+            sharedTasksData = null;
+            window.history.replaceState({}, document.title, window.location.pathname);
+        };
+
         // Start
         init();
+        checkSharedUrl();
     })();
     </script>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="fixed inset-0 z-50 hidden">
+        <div class="modal-overlay absolute inset-0 bg-black/30" onclick="closeSettingsModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 animate-slide-in">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-lg font-bold text-slate-800">设置</h2>
+                    <button onclick="closeSettingsModal()" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors">
+                        <i class="fas fa-times text-slate-400"></i>
+                    </button>
+                </div>
+                <div class="space-y-6">
+                    <!-- Firebase Config -->
+                    <div>
+                        <h3 class="text-sm font-semibold text-slate-700 mb-3">Firebase 配置（云端同步）</h3>
+                        <p class="text-xs text-slate-500 mb-3">Firebase Spark 计划完全免费。访问 <a href="https://firebase.google.com" target="_blank" class="text-blue-500 hover:underline">firebase.google.com</a> 创建项目并获取配置。</p>
+                        <div class="space-y-3">
+                            <input type="text" id="fbApiKey" placeholder="API Key" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <input type="text" id="fbAuthDomain" placeholder="Auth Domain (e.g. yourproject.firebaseapp.com)" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <input type="text" id="fbProjectId" placeholder="Project ID" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <input type="text" id="fbStorageBucket" placeholder="Storage Bucket (e.g. yourproject.appspot.com)" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <input type="text" id="fbMessagingSenderId" placeholder="Messaging Sender ID" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <input type="text" id="fbAppId" placeholder="App ID" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div class="flex items-center gap-3 mt-4">
+                            <button onclick="saveFirebaseConfig()" class="px-5 py-2.5 text-sm font-medium text-white bg-gradient-to-r from-blue-500 to-indigo-600 rounded-xl hover:from-blue-600 hover:to-indigo-700 transition-all">保存配置</button>
+                            <button onclick="clearFirebaseConfig()" class="px-5 py-2.5 text-sm font-medium text-slate-600 bg-slate-50 rounded-xl hover:bg-slate-100 transition-all">清除配置</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Share Modal -->
+    <div id="shareModal" class="fixed inset-0 z-50 hidden">
+        <div class="modal-overlay absolute inset-0 bg-black/30" onclick="closeShareModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 animate-slide-in">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-lg font-bold text-slate-800">分享任务列表</h2>
+                    <button onclick="closeShareModal()" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors">
+                        <i class="fas fa-times text-slate-400"></i>
+                    </button>
+                </div>
+                <div class="text-center mb-6">
+                    <div id="qrcode" class="inline-block p-3 bg-white rounded-xl border border-slate-200"></div>
+                </div>
+                <div class="space-y-4">
+                    <div class="relative">
+                        <input type="text" id="shareUrl" readonly class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-600 focus:outline-none">
+                        <button onclick="copyShareUrl()" class="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-all">
+                            <i class="fas fa-copy mr-1"></i>复制
+                        </button>
+                    </div>
+                    <p class="text-xs text-slate-500 text-center">将此链接发送给任何人，对方打开即可查看你的任务列表</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import JSON Modal -->
+    <div id="importModal" class="fixed inset-0 z-50 hidden">
+        <div class="modal-overlay absolute inset-0 bg-black/30" onclick="closeImportModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 animate-slide-in">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-lg font-bold text-slate-800">导入 JSON</h2>
+                    <button onclick="closeImportModal()" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors">
+                        <i class="fas fa-times text-slate-400"></i>
+                    </button>
+                </div>
+                <div class="space-y-4">
+                    <div class="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:border-blue-400 transition-colors cursor-pointer" onclick="document.getElementById('importFile').click()">
+                        <i class="fas fa-cloud-upload-alt text-3xl text-slate-400 mb-3"></i>
+                        <p class="text-sm font-medium text-slate-700 mb-1">点击或拖拽上传 JSON 文件</p>
+                        <p class="text-xs text-slate-500">支持从本应用导出的 JSON 格式</p>
+                        <input type="file" id="importFile" accept=".json" class="hidden" onchange="handleImportFile(event)">
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <label class="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                            <input type="radio" name="importMode" value="merge" checked class="w-4 h-4 text-blue-600">
+                            <span>合并到现有任务</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                            <input type="radio" name="importMode" value="replace" class="w-4 h-4 text-blue-600">
+                            <span>替换全部任务</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Shared Import Modal -->
+    <div id="sharedImportModal" class="fixed inset-0 z-50 hidden">
+        <div class="modal-overlay absolute inset-0 bg-black/30" onclick="closeSharedImportModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 animate-slide-in text-center">
+                <div class="w-14 h-14 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i class="fas fa-share-alt text-blue-500 text-xl"></i>
+                </div>
+                <h3 class="text-lg font-bold text-slate-800 mb-2">发现分享的任务列表</h3>
+                <p class="text-sm text-slate-500 mb-6">有人分享了一个任务列表给你，你想导入吗？</p>
+                <div class="flex items-center justify-center gap-3">
+                    <button onclick="closeSharedImportModal()" class="px-5 py-2.5 text-sm font-medium text-slate-600 bg-slate-50 rounded-xl hover:bg-slate-100 transition-all">忽略</button>
+                    <button onclick="importSharedTasks()" class="px-5 py-2.5 text-sm font-medium text-white bg-gradient-to-r from-blue-500 to-indigo-600 rounded-xl hover:from-blue-600 hover:to-indigo-700 transition-all">导入任务</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>
