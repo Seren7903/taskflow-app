@@ -1226,33 +1226,6 @@
             });
         };
 
-        // Expose API
-        window.app = { toggleTask, editTask, confirmDelete };
-        
-        // Expose modal & feature functions for HTML onclick handlers
-        window.signInWithGitHub = signInWithGitHub;
-        window.signOut = signOut;
-        window.openSettingsModal = openSettingsModal;
-        window.closeSettingsModal = closeSettingsModal;
-        window.saveFirebaseConfig = saveFirebaseConfig;
-        window.clearFirebaseConfig = clearFirebaseConfig;
-        window.closeShareModal = closeShareModal;
-        window.copyShareUrl = copyShareUrl;
-        window.closeImportModal = closeImportModal;
-        window.closeSharedImportModal = closeSharedImportModal;
-        window.importSharedTasks = importSharedTasks;
-        window.openPomodoroModal = openPomodoroModal;
-        window.closePomodoroModal = closePomodoroModal;
-        window.startPomodoro = startPomodoro;
-        window.pausePomodoro = pausePomodoro;
-        window.resetPomodoro = resetPomodoro;
-        window.openCalendarModal = openCalendarModal;
-        window.closeCalendarModal = closeCalendarModal;
-        window.changeCalendarMonth = changeCalendarMonth;
-        window.openAnalyticsModal = openAnalyticsModal;
-        window.closeAnalyticsModal = closeAnalyticsModal;
-        
-
         // =====================
         // Firebase Configuration & Sync
         // =====================
@@ -1833,6 +1806,31 @@
         
         // Run repeat generation on load
         const checkAndGenerateRepeats = () => { generateRepeatTasks(); };
+        
+        // Expose modal & feature functions for HTML onclick handlers
+        window.signInWithGitHub = signInWithGitHub;
+        window.signOut = signOut;
+        window.openSettingsModal = openSettingsModal;
+        window.closeSettingsModal = closeSettingsModal;
+        window.saveFirebaseConfig = saveFirebaseConfig;
+        window.clearFirebaseConfig = clearFirebaseConfig;
+        window.closeShareModal = closeShareModal;
+        window.copyShareUrl = copyShareUrl;
+        window.closeImportModal = closeImportModal;
+        window.closeSharedImportModal = closeSharedImportModal;
+        window.importSharedTasks = importSharedTasks;
+        window.openPomodoroModal = openPomodoroModal;
+        window.closePomodoroModal = closePomodoroModal;
+        window.startPomodoro = startPomodoro;
+        window.pausePomodoro = pausePomodoro;
+        window.resetPomodoro = resetPomodoro;
+        window.openCalendarModal = openCalendarModal;
+        window.closeCalendarModal = closeCalendarModal;
+        window.changeCalendarMonth = changeCalendarMonth;
+        window.openAnalyticsModal = openAnalyticsModal;
+        window.closeAnalyticsModal = closeAnalyticsModal;
+        
+        window.app = { toggleTask, editTask, confirmDelete };
 
         // Start
         init();
