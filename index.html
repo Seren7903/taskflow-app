@@ -1324,13 +1324,13 @@
             if (currentUser) {
                 const photo = currentUser.photoURL || 'https://github.com/identicons/' + (currentUser.uid || 'default') + '.png';
                 const name = currentUser.displayName || currentUser.email || 'User';
-                area.innerHTML = \`<div class="flex items-center gap-2">
+                area.innerHTML = `<div class="flex items-center gap-2">
                     <img src="\${photo}" class="w-8 h-8 rounded-full border border-slate-200" onerror="this.src='https://github.com/identicons/default.png'">
                     <span class="text-sm font-medium text-slate-700 hidden sm:inline">\${name}</span>
                     <button onclick="signOut()" class="text-xs text-slate-400 hover:text-slate-600 ml-1"><i class="fas fa-sign-out-alt"></i></button>
-                </div>\`;
+                </div>`;
             } else {
-                area.innerHTML = \`<button onclick="signInWithGitHub()" class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-slate-800 rounded-lg hover:bg-slate-900 transition-all"><i class="fab fa-github"></i><span>登录</span></button>\`;
+                area.innerHTML = `<button onclick="signInWithGitHub()" class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-slate-800 rounded-lg hover:bg-slate-900 transition-all"><i class="fab fa-github"></i><span>登录</span></button>`;
             }
         };
         
@@ -1512,7 +1512,7 @@
         const updatePomodoroDisplay = () => {
             const minutes = Math.floor(pomodoroTimeLeft / 60);
             const seconds = pomodoroTimeLeft % 60;
-            document.getElementById('pomodoroTime').textContent = \`\${minutes.toString().padStart(2, '0')}:\${seconds.toString().padStart(2, '0')}\`;
+            document.getElementById('pomodoroTime').textContent = `\${minutes.toString().padStart(2, '0')}:\${seconds.toString().padStart(2, '0')}`;
             
             const circumference = 2 * Math.PI * 54;
             const offset = circumference - ((pomodoroTotalTime - pomodoroTimeLeft) / pomodoroTotalTime) * circumference;
@@ -1590,7 +1590,7 @@
         const renderCalendar = () => {
             const year = calendarCurrentDate.getFullYear();
             const month = calendarCurrentDate.getMonth();
-            document.getElementById('calendarMonthTitle').textContent = \`\${year}年 \${month + 1}月\`;
+            document.getElementById('calendarMonthTitle').textContent = `\${year}年 \${month + 1}月`;
             
             const firstDay = new Date(year, month, 1).getDay();
             const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -1606,7 +1606,7 @@
             }
             
             for (let day = 1; day <= daysInMonth; day++) {
-                const dateStr = \`\${year}-\${String(month + 1).padStart(2, '0')}-\${String(day).padStart(2, '0')}\`;
+                const dateStr = `\${year}-\${String(month + 1).padStart(2, '0')}-\${String(day).padStart(2, '0')}`;
                 const dayTasks = tasks.filter(t => t.deadline === dateStr);
                 const completedCount = dayTasks.filter(t => t.completed).length;
                 const totalCount = dayTasks.length;
@@ -1622,15 +1622,15 @@
                 else if (totalCount > 0) indicatorColor = 'bg-blue-500';
                 
                 const dayEl = document.createElement('div');
-                dayEl.className = \`min-h-[60px] p-1.5 rounded-lg border border-slate-100 text-sm \${isToday ? 'bg-blue-50 border-blue-200' : 'bg-white'} hover:bg-slate-50 transition-all\`;
-                dayEl.innerHTML = \`
+                dayEl.className = `min-h-[60px] p-1.5 rounded-lg border border-slate-100 text-sm \${isToday ? 'bg-blue-50 border-blue-200' : 'bg-white'} hover:bg-slate-50 transition-all`;
+                dayEl.innerHTML = `
                     <div class="flex items-center justify-between mb-1">
                         <span class="\${isToday ? 'font-bold text-blue-600' : 'text-slate-600'}">\${day}</span>
-                        \${indicatorColor ? \`<span class="w-2 h-2 rounded-full \${indicatorColor}"></span>\` : ''}
+                        \${indicatorColor ? `<span class="w-2 h-2 rounded-full \${indicatorColor}"></span>` : ''}
                     </div>
-                    \${dayTasks.slice(0, 2).map(t => \`<div class="text-[10px] truncate \${t.completed ? 'text-slate-300 line-through' : 'text-slate-600'}">\${escapeHtml(t.title)}</div>\`).join('')}
-                    \${dayTasks.length > 2 ? \`<div class="text-[10px] text-slate-400">+\${dayTasks.length - 2} 更多</div>\` : ''}
-                \`;
+                    \${dayTasks.slice(0, 2).map(t => `<div class="text-[10px] truncate \${t.completed ? 'text-slate-300 line-through' : 'text-slate-600'}">\${escapeHtml(t.title)}</div>`).join('')}
+                    \${dayTasks.length > 2 ? `<div class="text-[10px] text-slate-400">+\${dayTasks.length - 2} 更多</div>` : ''}
+                `;
                 grid.appendChild(dayEl);
             }
         };
@@ -1749,7 +1749,7 @@
                     hourCounts[hour]++;
                 }
             });
-            const hourLabels = Array.from({length: 24}, (_, i) => \`\${i}时\`);
+            const hourLabels = Array.from({length: 24}, (_, i) => `\${i}时`);
             
             if (analyticsCharts.hourly) analyticsCharts.hourly.destroy();
             analyticsCharts.hourly = new Chart(document.getElementById('hourlyChart'), {
