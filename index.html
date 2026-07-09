@@ -11,6 +11,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
@@ -302,6 +303,21 @@
                     </button>
                 </div>
                 
+                <!-- Pomodoro -->
+                <button id="pomodoroBtn" class="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-red-600 bg-red-50 rounded-xl border border-red-200 hover:border-red-300 transition-all">
+                    <i class="fas fa-stopwatch"></i>
+                    <span class="hidden sm:inline">番茄钟</span>
+                </button>
+                <!-- Calendar -->
+                <button id="calendarBtn" class="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-blue-600 bg-blue-50 rounded-xl border border-blue-200 hover:border-blue-300 transition-all">
+                    <i class="fas fa-calendar-alt"></i>
+                    <span class="hidden sm:inline">日历</span>
+                </button>
+                <!-- Analytics -->
+                <button id="analyticsBtn" class="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-purple-600 bg-purple-50 rounded-xl border border-purple-200 hover:border-purple-300 transition-all">
+                    <i class="fas fa-chart-line"></i>
+                    <span class="hidden sm:inline">统计</span>
+                </button>
                 <!-- Sort -->
                 <select id="sortSelect" class="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
                     <option value="newest">最新创建</option>
@@ -408,6 +424,17 @@
                             <input type="date" id="taskDeadline"
                                    class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all">
                         </div>
+                    </div>
+                    
+                    <!-- Repeat Option -->
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1.5">重复设置</label>
+                        <select id="taskRepeat" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all">
+                            <option value="none">不重复</option>
+                            <option value="daily">每天</option>
+                            <option value="weekly">每周</option>
+                            <option value="monthly">每月</option>
+                        </select>
                     </div>
                     
                     <!-- Tags -->
@@ -701,6 +728,12 @@
                                             ${formatDate(task.deadline)}
                                         </span>
                                     ` : ''}
+                                    ${task.repeat && task.repeat !== 'none' ? `
+                                        <span class="flex items-center gap-1 text-xs px-2 py-0.5 bg-purple-50 text-purple-600 rounded-md border border-purple-200">
+                                            <i class="fas fa-sync-alt text-[10px]"></i>
+                                            ${getRepeatLabel(task.repeat)}
+                                        </span>
+                                    ` : ''}
                                     ${task.tags && task.tags.length > 0 ? `
                                         <div class="flex items-center gap-1.5">
                                             ${task.tags.map(tag => `<span class="px-2 py-0.5 text-xs rounded-md border ${getTagColor(tag)}">${escapeHtml(tag)}</span>`).join('')}
@@ -935,6 +968,9 @@
                 const priorityRadio = document.querySelector(`input[name="priority"][value="${editTask.priority}"]`);
                 if (priorityRadio) priorityRadio.checked = true;
                 
+                // Repeat
+                document.getElementById('taskRepeat').value = editTask.repeat || 'none';
+                
                 // Tags
                 if (editTask.tags) {
                     editTask.tags.forEach(tag => {
@@ -1014,6 +1050,7 @@
             const deadline = document.getElementById('taskDeadline').value;
             const tagsStr = document.getElementById('selectedTags').value;
             const tags = tagsStr ? tagsStr.split(',').filter(Boolean) : [];
+            const repeat = document.getElementById('taskRepeat').value;
             
             if (!title) {
                 document.getElementById('taskTitle').classList.add('animate-shake');
@@ -1160,6 +1197,11 @@
             // Share, Settings, Auth
             document.getElementById('shareBtn').addEventListener('click', openShareModal);
             document.getElementById('settingsBtn').addEventListener('click', openSettingsModal);
+            
+            // New features
+            document.getElementById('pomodoroBtn').addEventListener('click', openPomodoroModal);
+            document.getElementById('calendarBtn').addEventListener('click', openCalendarModal);
+            document.getElementById('analyticsBtn').addEventListener('click', openAnalyticsModal);
             
             // Initialize Firebase if configured
             initFirebase();
@@ -1446,8 +1488,332 @@
             window.history.replaceState({}, document.title, window.location.pathname);
         };
 
+
+        // =====================
+        // Pomodoro Timer
+        // =====================
+        let pomodoroTimer = null;
+        let pomodoroTimeLeft = 25 * 60;
+        let pomodoroTotalTime = 25 * 60;
+        let pomodoroIsRunning = false;
+        let pomodoroMode = 'work'; // 'work' or 'break'
+        
+        const openPomodoroModal = () => { document.getElementById('pomodoroModal').classList.remove('hidden'); };
+        const closePomodoroModal = () => { document.getElementById('pomodoroModal').classList.add('hidden'); pausePomodoro(); };
+        
+        const updatePomodoroDisplay = () => {
+            const minutes = Math.floor(pomodoroTimeLeft / 60);
+            const seconds = pomodoroTimeLeft % 60;
+            document.getElementById('pomodoroTime').textContent = \`\${minutes.toString().padStart(2, '0')}:\${seconds.toString().padStart(2, '0')}\`;
+            
+            const circumference = 2 * Math.PI * 54;
+            const offset = circumference - ((pomodoroTotalTime - pomodoroTimeLeft) / pomodoroTotalTime) * circumference;
+            document.getElementById('pomodoroCircle').style.strokeDashoffset = offset;
+        };
+        
+        const startPomodoro = () => {
+            if (pomodoroIsRunning) return;
+            pomodoroIsRunning = true;
+            document.getElementById('pomodoroStart').classList.add('hidden');
+            document.getElementById('pomodoroPause').classList.remove('hidden');
+            document.getElementById('pomodoroStatus').textContent = pomodoroMode === 'work' ? '专注中...' : '休息中...';
+            
+            pomodoroTimer = setInterval(() => {
+                if (pomodoroTimeLeft > 0) {
+                    pomodoroTimeLeft--;
+                    updatePomodoroDisplay();
+                } else {
+                    clearInterval(pomodoroTimer);
+                    pomodoroIsRunning = false;
+                    if (pomodoroMode === 'work') {
+                        pomodoroMode = 'break';
+                        pomodoroTimeLeft = 5 * 60;
+                        pomodoroTotalTime = 5 * 60;
+                        showToast('专注时间结束！休息一下吧');
+                        fireConfetti();
+                    } else {
+                        pomodoroMode = 'work';
+                        pomodoroTimeLeft = 25 * 60;
+                        pomodoroTotalTime = 25 * 60;
+                        showToast('休息结束！开始新的专注');
+                    }
+                    updatePomodoroDisplay();
+                    document.getElementById('pomodoroStart').classList.remove('hidden');
+                    document.getElementById('pomodoroPause').classList.add('hidden');
+                    document.getElementById('pomodoroStatus').textContent = pomodoroMode === 'work' ? '准备开始专注' : '准备休息';
+                }
+            }, 1000);
+        };
+        
+        const pausePomodoro = () => {
+            if (!pomodoroIsRunning) return;
+            clearInterval(pomodoroTimer);
+            pomodoroIsRunning = false;
+            document.getElementById('pomodoroStart').classList.remove('hidden');
+            document.getElementById('pomodoroPause').classList.add('hidden');
+            document.getElementById('pomodoroStatus').textContent = '已暂停';
+        };
+        
+        const resetPomodoro = () => {
+            pausePomodoro();
+            pomodoroMode = 'work';
+            pomodoroTimeLeft = 25 * 60;
+            pomodoroTotalTime = 25 * 60;
+            updatePomodoroDisplay();
+            document.getElementById('pomodoroStatus').textContent = '准备开始专注';
+        };
+        
+        // =====================
+        // Calendar View
+        // =====================
+        let calendarCurrentDate = new Date();
+        
+        const openCalendarModal = () => {
+            document.getElementById('calendarModal').classList.remove('hidden');
+            renderCalendar();
+        };
+        const closeCalendarModal = () => { document.getElementById('calendarModal').classList.add('hidden'); };
+        
+        const changeCalendarMonth = (delta) => {
+            calendarCurrentDate.setMonth(calendarCurrentDate.getMonth() + delta);
+            renderCalendar();
+        };
+        
+        const renderCalendar = () => {
+            const year = calendarCurrentDate.getFullYear();
+            const month = calendarCurrentDate.getMonth();
+            document.getElementById('calendarMonthTitle').textContent = \`\${year}年 \${month + 1}月\`;
+            
+            const firstDay = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            const grid = document.getElementById('calendarGrid');
+            grid.innerHTML = '';
+            
+            // Empty cells for days before first day
+            for (let i = 0; i < firstDay; i++) {
+                grid.innerHTML += '<div></div>';
+            }
+            
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateStr = \`\${year}-\${String(month + 1).padStart(2, '0')}-\${String(day).padStart(2, '0')}\`;
+                const dayTasks = tasks.filter(t => t.deadline === dateStr);
+                const completedCount = dayTasks.filter(t => t.completed).length;
+                const totalCount = dayTasks.length;
+                
+                const isToday = (year === today.getFullYear() && month === today.getMonth() && day === today.getDate());
+                const hasOverdue = dayTasks.some(t => !t.completed && new Date(t.deadline) < today);
+                const allCompleted = totalCount > 0 && completedCount === totalCount;
+                
+                let indicatorColor = '';
+                if (hasOverdue) indicatorColor = 'bg-red-500';
+                else if (isToday) indicatorColor = 'bg-amber-500';
+                else if (allCompleted) indicatorColor = 'bg-green-500';
+                else if (totalCount > 0) indicatorColor = 'bg-blue-500';
+                
+                const dayEl = document.createElement('div');
+                dayEl.className = \`min-h-[60px] p-1.5 rounded-lg border border-slate-100 text-sm \${isToday ? 'bg-blue-50 border-blue-200' : 'bg-white'} hover:bg-slate-50 transition-all\`;
+                dayEl.innerHTML = \`
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="\${isToday ? 'font-bold text-blue-600' : 'text-slate-600'}">\${day}</span>
+                        \${indicatorColor ? \`<span class="w-2 h-2 rounded-full \${indicatorColor}"></span>\` : ''}
+                    </div>
+                    \${dayTasks.slice(0, 2).map(t => \`<div class="text-[10px] truncate \${t.completed ? 'text-slate-300 line-through' : 'text-slate-600'}">\${escapeHtml(t.title)}</div>\`).join('')}
+                    \${dayTasks.length > 2 ? \`<div class="text-[10px] text-slate-400">+\${dayTasks.length - 2} 更多</div>\` : ''}
+                \`;
+                grid.appendChild(dayEl);
+            }
+        };
+        
+        // =====================
+        // Analytics Dashboard
+        // =====================
+        let analyticsCharts = {};
+        
+        const openAnalyticsModal = () => {
+            document.getElementById('analyticsModal').classList.remove('hidden');
+            setTimeout(renderAnalytics, 100);
+        };
+        const closeAnalyticsModal = () => { 
+            document.getElementById('analyticsModal').classList.add('hidden'); 
+            Object.values(analyticsCharts).forEach(c => c.destroy());
+            analyticsCharts = {};
+        };
+        
+        const renderAnalytics = () => {
+            // 1. Completion trend (last 7 days)
+            const last7Days = [];
+            const completionData = [];
+            for (let i = 6; i >= 0; i--) {
+                const d = new Date();
+                d.setDate(d.getDate() - i);
+                const dateStr = d.toISOString().split('T')[0];
+                last7Days.push(d.toLocaleDateString('zh-CN', {month:'short', day:'numeric'}));
+                const dayTasks = tasks.filter(t => t.deadline === dateStr);
+                const completed = dayTasks.filter(t => t.completed).length;
+                completionData.push(dayTasks.length > 0 ? Math.round(completed / dayTasks.length * 100) : 0);
+            }
+            
+            if (analyticsCharts.completion) analyticsCharts.completion.destroy();
+            analyticsCharts.completion = new Chart(document.getElementById('completionChart'), {
+                type: 'line',
+                data: {
+                    labels: last7Days,
+                    datasets: [{
+                        label: '完成率(%)',
+                        data: completionData,
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, max: 100 } } }
+            });
+            
+            // 2. Priority distribution
+            const priorityCounts = { high: 0, medium: 0, low: 0 };
+            tasks.forEach(t => { if (priorityCounts[t.priority] !== undefined) priorityCounts[t.priority]++; });
+            
+            if (analyticsCharts.priority) analyticsCharts.priority.destroy();
+            analyticsCharts.priority = new Chart(document.getElementById('priorityChart'), {
+                type: 'doughnut',
+                data: {
+                    labels: ['高', '中', '低'],
+                    datasets: [{
+                        data: [priorityCounts.high, priorityCounts.medium, priorityCounts.low],
+                        backgroundColor: ['#ef4444', '#f59e0b', '#10b981']
+                    }]
+                },
+                options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+            });
+            
+            // 3. Tag distribution
+            const tagCounts = {};
+            tasks.forEach(t => { (t.tags || []).forEach(tag => { tagCounts[tag] = (tagCounts[tag] || 0) + 1; }); });
+            const tagLabels = Object.keys(tagCounts).slice(0, 5);
+            const tagData = tagLabels.map(t => tagCounts[t]);
+            
+            if (analyticsCharts.tag) analyticsCharts.tag.destroy();
+            analyticsCharts.tag = new Chart(document.getElementById('tagChart'), {
+                type: 'bar',
+                data: {
+                    labels: tagLabels,
+                    datasets: [{
+                        label: '任务数',
+                        data: tagData,
+                        backgroundColor: ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444']
+                    }]
+                },
+                options: { responsive: true, plugins: { legend: { display: false } } }
+            });
+            
+            // 4. Daily completion count
+            const dailyCounts = {};
+            for (let i = 6; i >= 0; i--) {
+                const d = new Date();
+                d.setDate(d.getDate() - i);
+                const dateStr = d.toISOString().split('T')[0];
+                dailyCounts[d.toLocaleDateString('zh-CN', {month:'short', day:'numeric'})] = tasks.filter(t => t.completed && t.deadline === dateStr).length;
+            }
+            
+            if (analyticsCharts.daily) analyticsCharts.daily.destroy();
+            analyticsCharts.daily = new Chart(document.getElementById('dailyChart'), {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(dailyCounts),
+                    datasets: [{
+                        label: '已完成',
+                        data: Object.values(dailyCounts),
+                        backgroundColor: '#10b981'
+                    }]
+                },
+                options: { responsive: true, plugins: { legend: { display: false } } }
+            });
+            
+            // 5. Hourly distribution (when tasks were created)
+            const hourCounts = new Array(24).fill(0);
+            tasks.forEach(t => {
+                if (t.createdAt) {
+                    const hour = new Date(t.createdAt).getHours();
+                    hourCounts[hour]++;
+                }
+            });
+            const hourLabels = Array.from({length: 24}, (_, i) => \`\${i}时\`);
+            
+            if (analyticsCharts.hourly) analyticsCharts.hourly.destroy();
+            analyticsCharts.hourly = new Chart(document.getElementById('hourlyChart'), {
+                type: 'bar',
+                data: {
+                    labels: hourLabels,
+                    datasets: [{
+                        label: '创建任务数',
+                        data: hourCounts,
+                        backgroundColor: 'rgba(99, 102, 241, 0.6)'
+                    }]
+                },
+                options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { display: false } } }
+            });
+        };
+        
+        // =====================
+        // Repeat Task Logic
+        // =====================
+        const getRepeatLabel = (repeat) => {
+            const labels = { none: '', daily: '每天重复', weekly: '每周重复', monthly: '每月重复' };
+            return labels[repeat] || '';
+        };
+        
+        const generateRepeatTasks = () => {
+            const now = new Date();
+            now.setHours(0, 0, 0, 0);
+            
+            tasks.forEach(task => {
+                if (!task.repeat || task.repeat === 'none' || task.completed) return;
+                
+                const deadline = new Date(task.deadline);
+                deadline.setHours(0, 0, 0, 0);
+                
+                if (deadline >= now) return; // Not overdue yet
+                
+                // Generate next occurrence
+                let nextDate = new Date(deadline);
+                while (nextDate < now) {
+                    if (task.repeat === 'daily') nextDate.setDate(nextDate.getDate() + 1);
+                    else if (task.repeat === 'weekly') nextDate.setDate(nextDate.getDate() + 7);
+                    else if (task.repeat === 'monthly') nextDate.setMonth(nextDate.getMonth() + 1);
+                }
+                
+                // Check if next instance already exists
+                const nextDateStr = nextDate.toISOString().split('T')[0];
+                const exists = tasks.some(t => t.title === task.title && t.deadline === nextDateStr && t.repeat === task.repeat);
+                
+                if (!exists) {
+                    tasks.push({
+                        id: generateId(),
+                        title: task.title,
+                        description: task.description,
+                        priority: task.priority,
+                        deadline: nextDateStr,
+                        tags: task.tags,
+                        repeat: task.repeat,
+                        completed: false,
+                        createdAt: Date.now()
+                    });
+                }
+            });
+            
+            saveTasks();
+        };
+        
+        // Run repeat generation on load
+        const checkAndGenerateRepeats = () => { generateRepeatTasks(); };
+
         // Start
         init();
+        checkAndGenerateRepeats();
         checkSharedUrl();
     })();
     </script>
@@ -1562,7 +1928,130 @@
                 </div>
             </div>
         </div>
+    
+    <!-- Pomodoro Timer Modal -->
+    <div id="pomodoroModal" class="fixed inset-0 z-50 hidden">
+        <div class="modal-overlay absolute inset-0 bg-black/30" onclick="closePomodoroModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 animate-slide-in text-center">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-lg font-bold text-slate-800">番茄钟</h2>
+                    <button onclick="closePomodoroModal()" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors">
+                        <i class="fas fa-times text-slate-400"></i>
+                    </button>
+                </div>
+                <div class="mb-6">
+                    <div class="relative w-48 h-48 mx-auto mb-4">
+                        <svg class="w-48 h-48" viewBox="0 0 120 120">
+                            <circle cx="60" cy="60" r="54" fill="none" stroke="#f1f5f9" stroke-width="8"/>
+                            <circle id="pomodoroCircle" cx="60" cy="60" r="54" fill="none" stroke="url(#pomodoroGradient)" stroke-width="8" stroke-linecap="round" stroke-dasharray="339.29" stroke-dashoffset="339.29" class="progress-ring-circle"/>
+                            <defs>
+                                <linearGradient id="pomodoroGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                    <stop offset="0%" style="stop-color:#ef4444"/>
+                                    <stop offset="100%" style="stop-color:#f97316"/>
+                                </linearGradient>
+                            </defs>
+                        </svg>
+                        <div class="absolute inset-0 flex items-center justify-center">
+                            <span id="pomodoroTime" class="text-4xl font-bold text-slate-800">25:00</span>
+                        </div>
+                    </div>
+                    <p id="pomodoroStatus" class="text-sm font-medium text-slate-500 mb-4">准备开始专注</p>
+                    <div class="flex items-center justify-center gap-3">
+                        <button id="pomodoroStart" onclick="startPomodoro()" class="px-6 py-2.5 text-sm font-medium text-white bg-gradient-to-r from-red-500 to-orange-500 rounded-xl hover:from-red-600 hover:to-orange-600 transition-all">
+                            <i class="fas fa-play mr-1"></i>开始
+                        </button>
+                        <button id="pomodoroPause" onclick="pausePomodoro()" class="hidden px-6 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 rounded-xl hover:bg-slate-200 transition-all">
+                            <i class="fas fa-pause mr-1"></i>暂停
+                        </button>
+                        <button onclick="resetPomodoro()" class="px-6 py-2.5 text-sm font-medium text-slate-500 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-all">
+                            <i class="fas fa-redo"></i>
+                        </button>
+                    </div>
+                    <div class="flex items-center justify-center gap-2 mt-4 text-xs text-slate-400">
+                        <span class="px-2 py-1 bg-red-50 text-red-600 rounded-lg">25分钟专注</span>
+                        <span class="px-2 py-1 bg-green-50 text-green-600 rounded-lg">5分钟休息</span>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
+
+    <!-- Calendar View Modal -->
+    <div id="calendarModal" class="fixed inset-0 z-50 hidden">
+        <div class="modal-overlay absolute inset-0 bg-black/30" onclick="closeCalendarModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 animate-slide-in">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-lg font-bold text-slate-800">
+                        <i class="fas fa-calendar-alt text-blue-500 mr-2"></i>任务日历
+                    </h2>
+                    <button onclick="closeCalendarModal()" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors">
+                        <i class="fas fa-times text-slate-400"></i>
+                    </button>
+                </div>
+                <div class="flex items-center justify-between mb-4">
+                    <button onclick="changeCalendarMonth(-1)" class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all">
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
+                    <h3 id="calendarMonthTitle" class="text-base font-semibold text-slate-800"></h3>
+                    <button onclick="changeCalendarMonth(1)" class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all">
+                        <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
+                <div class="grid grid-cols-7 gap-1 mb-2 text-center text-xs font-medium text-slate-400">
+                    <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
+                </div>
+                <div id="calendarGrid" class="grid grid-cols-7 gap-1"></div>
+                <div class="mt-4 flex items-center gap-4 text-xs text-slate-500">
+                    <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-red-500"></span>逾期</span>
+                    <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-amber-500"></span>今天</span>
+                    <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-blue-500"></span>进行中</span>
+                    <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-500"></span>已完成</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Analytics Dashboard Modal -->
+    <div id="analyticsModal" class="fixed inset-0 z-50 hidden">
+        <div class="modal-overlay absolute inset-0 bg-black/30" onclick="closeAnalyticsModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6 animate-slide-in">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-lg font-bold text-slate-800">
+                        <i class="fas fa-chart-line text-blue-500 mr-2"></i>数据统计
+                    </h2>
+                    <button onclick="closeAnalyticsModal()" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors">
+                        <i class="fas fa-times text-slate-400"></i>
+                    </button>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <div class="bg-slate-50 rounded-xl p-4">
+                        <p class="text-xs text-slate-500 mb-2">任务完成趋势（7天）</p>
+                        <canvas id="completionChart" height="200"></canvas>
+                    </div>
+                    <div class="bg-slate-50 rounded-xl p-4">
+                        <p class="text-xs text-slate-500 mb-2">优先级分布</p>
+                        <canvas id="priorityChart" height="200"></canvas>
+                    </div>
+                    <div class="bg-slate-50 rounded-xl p-4">
+                        <p class="text-xs text-slate-500 mb-2">标签分布</p>
+                        <canvas id="tagChart" height="200"></canvas>
+                    </div>
+                    <div class="bg-slate-50 rounded-xl p-4">
+                        <p class="text-xs text-slate-500 mb-2">每日完成量</p>
+                        <canvas id="dailyChart" height="200"></canvas>
+                    </div>
+                </div>
+                <div class="bg-slate-50 rounded-xl p-4">
+                    <p class="text-xs text-slate-500 mb-2">任务完成时间分布</p>
+                    <canvas id="hourlyChart" height="150"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
 
 </body>
 </html>
