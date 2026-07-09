@@ -1,0 +1,1155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TaskFlow - 任务管理系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+        
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        /* Progress ring */
+        .progress-ring { transform: rotate(-90deg); }
+        .progress-ring-circle { transition: stroke-dashoffset 0.8s ease-in-out; }
+        
+        /* Drag and drop */
+        .task-item { transition: all 0.2s ease; }
+        .task-item.dragging { opacity: 0.5; transform: scale(1.02); }
+        .task-item.drag-over { border-top: 3px solid #3b82f6; }
+        
+        /* Animations */
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        @keyframes countUp {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .animate-slide-in { animation: slideIn 0.3s ease-out; }
+        .animate-fade-in { animation: fadeIn 0.3s ease-out; }
+        .animate-shake { animation: shake 0.4s ease-in-out; }
+        .animate-pulse-soft { animation: pulse 0.3s ease-in-out; }
+        .animate-count { animation: countUp 0.4s ease-out; }
+        
+        /* Custom checkbox */
+        .custom-checkbox {
+            appearance: none;
+            width: 22px;
+            height: 22px;
+            border: 2px solid #d1d5db;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+        }
+        .custom-checkbox:checked {
+            background: #10b981;
+            border-color: #10b981;
+        }
+        .custom-checkbox:checked::after {
+            content: '✓';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        
+        /* Priority badges */
+        .priority-high { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+        .priority-medium { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
+        .priority-low { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+        
+        /* Modal */
+        .modal-overlay { backdrop-filter: blur(4px); }
+        
+        /* Task completed state */
+        .task-completed .task-title { text-decoration: line-through; color: #9ca3af; }
+        .task-completed .task-desc { color: #d1d5db; }
+        
+        /* Confetti canvas */
+        #confetti-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 9999;
+        }
+        
+        /* Glass effect */
+        .glass {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        
+        /* Empty state illustration */
+        .empty-state svg { max-width: 200px; margin: 0 auto; }
+        
+        /* Tooltip */
+        .tooltip {
+            position: relative;
+        }
+        .tooltip::after {
+            content: attr(data-tip);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 4px 8px;
+            background: #1f2937;
+            color: white;
+            font-size: 12px;
+            border-radius: 4px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+        }
+        .tooltip:hover::after { opacity: 1; }
+        
+        /* Date input styling */
+        input[type="date"]::-webkit-calendar-picker-indicator {
+            filter: invert(0.5);
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 min-h-screen text-slate-800">
+    <!-- Confetti Canvas -->
+    <canvas id="confetti-canvas"></canvas>
+    
+    <!-- Header -->
+    <header class="glass sticky top-0 z-40 shadow-sm">
+        <div class="max-w-6xl mx-auto px-4 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-200">
+                        <i class="fas fa-check-double text-white text-lg"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold text-slate-800">TaskFlow</h1>
+                        <p class="text-xs text-slate-500 -mt-0.5">高效任务管理</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button id="exportBtn" class="hidden sm:flex items-center gap-2 px-4 py-2 text-sm text-slate-600 hover:text-slate-800 bg-white rounded-lg border border-slate-200 hover:border-slate-300 transition-all">
+                        <i class="fas fa-download"></i>
+                        <span>导出</span>
+                    </button>
+                    <button id="clearAllBtn" class="hidden sm:flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:text-red-700 bg-red-50 rounded-lg border border-red-200 hover:border-red-300 transition-all">
+                        <i class="fas fa-trash-alt"></i>
+                        <span>清空</span>
+                    </button>
+                    <div class="w-px h-8 bg-slate-200 hidden sm:block"></div>
+                    <div class="text-right">
+                        <p id="currentDate" class="text-sm font-medium text-slate-700"></p>
+                        <p id="greeting" class="text-xs text-slate-500"></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-6xl mx-auto px-4 py-6">
+        <!-- Stats Row -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <!-- Total Tasks -->
+            <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-list text-blue-500"></i>
+                    </div>
+                    <span class="text-xs text-slate-400 font-medium">全部</span>
+                </div>
+                <p id="statTotal" class="text-2xl font-bold text-slate-800">0</p>
+                <p class="text-xs text-slate-500 mt-1">个任务</p>
+            </div>
+            
+            <!-- In Progress -->
+            <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-clock text-amber-500"></i>
+                    </div>
+                    <span class="text-xs text-slate-400 font-medium">进行中</span>
+                </div>
+                <p id="statInProgress" class="text-2xl font-bold text-slate-800">0</p>
+                <p class="text-xs text-slate-500 mt-1">待完成</p>
+            </div>
+            
+            <!-- Completed -->
+            <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="w-10 h-10 bg-green-50 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-check-circle text-green-500"></i>
+                    </div>
+                    <span class="text-xs text-slate-400 font-medium">已完成</span>
+                </div>
+                <p id="statCompleted" class="text-2xl font-bold text-slate-800">0</p>
+                <p class="text-xs text-slate-500 mt-1">已达成</p>
+            </div>
+            
+            <!-- Progress Ring -->
+            <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 hover:shadow-md transition-shadow flex items-center gap-4">
+                <div class="relative w-16 h-16 flex-shrink-0">
+                    <svg class="progress-ring w-16 h-16" viewBox="0 0 60 60">
+                        <circle cx="30" cy="30" r="26" fill="none" stroke="#e2e8f0" stroke-width="5"/>
+                        <circle id="progressCircle" cx="30" cy="30" r="26" fill="none" stroke="url(#progressGradient)" stroke-width="5" 
+                                stroke-linecap="round" stroke-dasharray="163.36" stroke-dashoffset="163.36" class="progress-ring-circle"/>
+                        <defs>
+                            <linearGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" style="stop-color:#3b82f6"/>
+                                <stop offset="100%" style="stop-color:#6366f1"/>
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                    <div class="absolute inset-0 flex items-center justify-center">
+                        <span id="progressPercent" class="text-sm font-bold text-slate-700">0%</span>
+                    </div>
+                </div>
+                <div>
+                    <p class="text-sm font-semibold text-slate-700">完成进度</p>
+                    <p id="progressText" class="text-xs text-slate-500">加油！</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 mb-6">
+            <div class="flex flex-col sm:flex-row sm:items-center gap-4">
+                <!-- Search -->
+                <div class="relative flex-1 max-w-md">
+                    <i class="fas fa-search absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                    <input type="text" id="searchInput" placeholder="搜索任务..." 
+                           class="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all">
+                </div>
+                
+                <!-- Filter Tabs -->
+                <div class="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
+                    <button class="filter-tab active px-4 py-2 text-sm font-medium rounded-lg transition-all bg-white text-slate-800 shadow-sm" data-filter="all">
+                        全部
+                        <span id="badgeAll" class="ml-1.5 px-1.5 py-0.5 text-xs bg-slate-200 text-slate-600 rounded-md">0</span>
+                    </button>
+                    <button class="filter-tab px-4 py-2 text-sm font-medium rounded-lg transition-all text-slate-500 hover:text-slate-700" data-filter="active">
+                        进行中
+                        <span id="badgeActive" class="ml-1.5 px-1.5 py-0.5 text-xs bg-slate-200 text-slate-600 rounded-md">0</span>
+                    </button>
+                    <button class="filter-tab px-4 py-2 text-sm font-medium rounded-lg transition-all text-slate-500 hover:text-slate-700" data-filter="completed">
+                        已完成
+                        <span id="badgeCompleted" class="ml-1.5 px-1.5 py-0.5 text-xs bg-slate-200 text-slate-600 rounded-md">0</span>
+                    </button>
+                </div>
+                
+                <!-- Sort -->
+                <select id="sortSelect" class="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
+                    <option value="newest">最新创建</option>
+                    <option value="deadline">截止日期</option>
+                    <option value="priority">优先级</option>
+                </select>
+                
+                <!-- Add Button -->
+                <button id="addTaskBtn" class="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-blue-600 hover:to-indigo-700 shadow-lg shadow-blue-200 transition-all hover:shadow-xl hover:-translate-y-0.5">
+                    <i class="fas fa-plus"></i>
+                    <span>新建任务</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Task List -->
+        <div id="taskList" class="space-y-3">
+            <!-- Tasks will be rendered here -->
+        </div>
+        
+        <!-- Empty State -->
+        <div id="emptyState" class="hidden text-center py-16">
+            <div class="empty-state mb-6">
+                <svg viewBox="0 0 200 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="20" y="40" width="160" height="110" rx="12" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="2"/>
+                    <rect x="35" y="60" width="80" height="8" rx="4" fill="#cbd5e1"/>
+                    <rect x="35" y="78" width="120" height="6" rx="3" fill="#e2e8f0"/>
+                    <rect x="35" y="92" width="100" height="6" rx="3" fill="#e2e8f0"/>
+                    <rect x="35" y="106" width="60" height="6" rx="3" fill="#e2e8f0"/>
+                    <circle cx="150" cy="115" r="20" fill="#fbbf24" opacity="0.3"/>
+                    <path d="M145 115l5 5 10-10" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                    <circle cx="160" cy="40" r="25" fill="#dbeafe" opacity="0.5"/>
+                    <path d="M155 35l5 5 10-10M155 45l5 5 10-10" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" fill="none" opacity="0.3"/>
+                </svg>
+            </div>
+            <p class="text-lg font-medium text-slate-700 mb-1">还没有任务</p>
+            <p class="text-sm text-slate-400 mb-6">点击上方按钮创建你的第一个任务吧！</p>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loadingState" class="hidden text-center py-16">
+            <div class="inline-block w-8 h-8 border-3 border-blue-200 border-t-blue-500 rounded-full animate-spin mb-4"></div>
+            <p class="text-sm text-slate-500">加载中...</p>
+        </div>
+    </main>
+
+    <!-- Add/Edit Task Modal -->
+    <div id="taskModal" class="fixed inset-0 z-50 hidden">
+        <div class="modal-overlay absolute inset-0 bg-black/30" id="modalOverlay"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto animate-slide-in">
+                <div class="p-6 border-b border-slate-100">
+                    <div class="flex items-center justify-between">
+                        <h2 id="modalTitle" class="text-lg font-bold text-slate-800">新建任务</h2>
+                        <button id="closeModal" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors">
+                            <i class="fas fa-times text-slate-400"></i>
+                        </button>
+                    </div>
+                </div>
+                <form id="taskForm" class="p-6 space-y-5">
+                    <input type="hidden" id="taskId">
+                    
+                    <!-- Title -->
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1.5">任务标题 <span class="text-red-500">*</span></label>
+                        <input type="text" id="taskTitle" required placeholder="输入任务标题..."
+                               class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all">
+                    </div>
+                    
+                    <!-- Description -->
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1.5">任务描述</label>
+                        <textarea id="taskDesc" rows="3" placeholder="添加详细描述..."
+                                  class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all resize-none"></textarea>
+                    </div>
+                    
+                    <!-- Priority & Date Row -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1.5">优先级</label>
+                            <div class="grid grid-cols-3 gap-2">
+                                <label class="cursor-pointer">
+                                    <input type="radio" name="priority" value="high" class="hidden peer">
+                                    <div class="px-3 py-2 text-xs font-medium text-center rounded-lg border border-slate-200 peer-checked:bg-red-50 peer-checked:text-red-600 peer-checked:border-red-300 transition-all hover:bg-slate-50">
+                                        高
+                                    </div>
+                                </label>
+                                <label class="cursor-pointer">
+                                    <input type="radio" name="priority" value="medium" class="hidden peer" checked>
+                                    <div class="px-3 py-2 text-xs font-medium text-center rounded-lg border border-slate-200 peer-checked:bg-amber-50 peer-checked:text-amber-600 peer-checked:border-amber-300 transition-all hover:bg-slate-50">
+                                        中
+                                    </div>
+                                </label>
+                                <label class="cursor-pointer">
+                                    <input type="radio" name="priority" value="low" class="hidden peer">
+                                    <div class="px-3 py-2 text-xs font-medium text-center rounded-lg border border-slate-200 peer-checked:bg-green-50 peer-checked:text-green-600 peer-checked:border-green-300 transition-all hover:bg-slate-50">
+                                        低
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1.5">截止日期</label>
+                            <input type="date" id="taskDeadline"
+                                   class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all">
+                        </div>
+                    </div>
+                    
+                    <!-- Tags -->
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1.5">标签</label>
+                        <div class="flex flex-wrap gap-2" id="tagContainer">
+                            <span class="tag-item px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-600 rounded-lg border border-blue-200 cursor-pointer hover:bg-blue-100 transition-colors" data-tag="工作">工作</span>
+                            <span class="tag-item px-3 py-1.5 text-xs font-medium bg-purple-50 text-purple-600 rounded-lg border border-purple-200 cursor-pointer hover:bg-purple-100 transition-colors" data-tag="学习">学习</span>
+                            <span class="tag-item px-3 py-1.5 text-xs font-medium bg-green-50 text-green-600 rounded-lg border border-green-200 cursor-pointer hover:bg-green-100 transition-colors" data-tag="生活">生活</span>
+                            <span class="tag-item px-3 py-1.5 text-xs font-medium bg-orange-50 text-orange-600 rounded-lg border border-orange-200 cursor-pointer hover:bg-orange-100 transition-colors" data-tag="健康">健康</span>
+                            <span class="tag-item px-3 py-1.5 text-xs font-medium bg-pink-50 text-pink-600 rounded-lg border border-pink-200 cursor-pointer hover:bg-pink-100 transition-colors" data-tag="娱乐">娱乐</span>
+                        </div>
+                        <input type="hidden" id="selectedTags">
+                    </div>
+                    
+                    <!-- Actions -->
+                    <div class="flex items-center justify-end gap-3 pt-2">
+                        <button type="button" id="cancelBtn" class="px-5 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-800 bg-slate-50 rounded-xl hover:bg-slate-100 transition-all">
+                            取消
+                        </button>
+                        <button type="submit" class="px-5 py-2.5 text-sm font-medium text-white bg-gradient-to-r from-blue-500 to-indigo-600 rounded-xl hover:from-blue-600 hover:to-indigo-700 shadow-lg shadow-blue-200 transition-all">
+                            <span id="submitBtnText">保存任务</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="deleteModal" class="fixed inset-0 z-50 hidden">
+        <div class="modal-overlay absolute inset-0 bg-black/30"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 animate-slide-in text-center">
+                <div class="w-14 h-14 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i class="fas fa-exclamation-triangle text-red-500 text-xl"></i>
+                </div>
+                <h3 class="text-lg font-bold text-slate-800 mb-2">确认删除</h3>
+                <p class="text-sm text-slate-500 mb-6">确定要删除这个任务吗？此操作无法撤销。</p>
+                <div class="flex items-center justify-center gap-3">
+                    <button id="cancelDelete" class="px-5 py-2.5 text-sm font-medium text-slate-600 bg-slate-50 rounded-xl hover:bg-slate-100 transition-all">
+                        取消
+                    </button>
+                    <button id="confirmDelete" class="px-5 py-2.5 text-sm font-medium text-white bg-red-500 rounded-xl hover:bg-red-600 shadow-lg shadow-red-200 transition-all">
+                        确认删除
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-6 right-6 z-50 hidden">
+        <div class="flex items-center gap-3 px-5 py-3.5 bg-slate-800 text-white rounded-xl shadow-2xl animate-slide-in">
+            <i id="toastIcon" class="fas fa-check-circle text-green-400"></i>
+            <p id="toastMessage" class="text-sm font-medium">操作成功</p>
+        </div>
+    </div>
+
+    <script>
+    (() => {
+        // =====================
+        // State Management
+        // =====================
+        const STORAGE_KEY = 'taskflow_data';
+        let tasks = [];
+        let currentFilter = 'all';
+        let currentSort = 'newest';
+        let searchQuery = '';
+        let deleteTargetId = null;
+        let draggedItem = null;
+
+        // =====================
+        // Demo Data
+        // =====================
+        const demoTasks = [
+            {
+                id: 'demo-1',
+                title: '完成项目需求文档',
+                description: '整理并撰写Q2季度的产品需求文档，包含功能列表和用户故事。',
+                priority: 'high',
+                deadline: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                tags: ['工作'],
+                completed: false,
+                createdAt: Date.now() - 86400000
+            },
+            {
+                id: 'demo-2',
+                title: '学习 React Hooks',
+                description: '深入学习 useEffect、useMemo 和自定义 Hooks 的使用方法。',
+                priority: 'medium',
+                deadline: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                tags: ['学习'],
+                completed: false,
+                createdAt: Date.now() - 172800000
+            },
+            {
+                id: 'demo-3',
+                title: '晨跑 5 公里',
+                description: '坚持每天早晨跑步，保持健康的生活节奏。',
+                priority: 'low',
+                deadline: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                tags: ['健康'],
+                completed: true,
+                createdAt: Date.now() - 259200000
+            },
+            {
+                id: 'demo-4',
+                title: '预约牙科检查',
+                description: '年度牙齿健康检查，记得带医保卡。',
+                priority: 'medium',
+                deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                tags: ['生活', '健康'],
+                completed: false,
+                createdAt: Date.now() - 345600000
+            }
+        ];
+
+        // =====================
+        // Utility Functions
+        // =====================
+        const generateId = () => 'task_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        
+        const formatDate = (dateStr) => {
+            if (!dateStr) return '';
+            const date = new Date(dateStr);
+            const today = new Date();
+            today.setHours(0,0,0,0);
+            const target = new Date(date);
+            target.setHours(0,0,0,0);
+            const diff = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
+            
+            if (diff === 0) return '今天';
+            if (diff === 1) return '明天';
+            if (diff === -1) return '昨天';
+            if (diff < 0) return `逾期 ${Math.abs(diff)} 天`;
+            if (diff <= 7) return `${diff} 天后`;
+            return `${date.getMonth() + 1}月${date.getDate()}日`;
+        };
+        
+        const getDeadlineClass = (dateStr, completed) => {
+            if (completed || !dateStr) return 'text-slate-400';
+            const today = new Date();
+            today.setHours(0,0,0,0);
+            const target = new Date(dateStr);
+            target.setHours(0,0,0,0);
+            const diff = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
+            
+            if (diff < 0) return 'text-red-500 font-medium';
+            if (diff === 0) return 'text-amber-500 font-medium';
+            if (diff <= 2) return 'text-orange-500';
+            return 'text-slate-400';
+        };
+        
+        const getDeadlineIcon = (dateStr, completed) => {
+            if (completed) return 'fa-calendar-check';
+            const today = new Date();
+            today.setHours(0,0,0,0);
+            const target = new Date(dateStr);
+            target.setHours(0,0,0,0);
+            if (target < today) return 'fa-exclamation-circle';
+            return 'fa-calendar';
+        };
+
+        const getPriorityLabel = (p) => ({ high: '高', medium: '中', low: '低' }[p] || p);
+        const getPriorityClass = (p) => `priority-${p}`;
+
+        const getTagColor = (tag) => {
+            const colors = {
+                '工作': 'bg-blue-50 text-blue-600 border-blue-200',
+                '学习': 'bg-purple-50 text-purple-600 border-purple-200',
+                '生活': 'bg-green-50 text-green-600 border-green-200',
+                '健康': 'bg-orange-50 text-orange-600 border-orange-200',
+                '娱乐': 'bg-pink-50 text-pink-600 border-pink-200'
+            };
+            return colors[tag] || 'bg-slate-50 text-slate-600 border-slate-200';
+        };
+
+        // =====================
+        // Storage
+        // =====================
+        const loadTasks = () => {
+            try {
+                const data = localStorage.getItem(STORAGE_KEY);
+                if (data) {
+                    tasks = JSON.parse(data);
+                } else {
+                    tasks = [...demoTasks];
+                    saveTasks();
+                }
+            } catch (e) {
+                tasks = [...demoTasks];
+            }
+        };
+        
+        const saveTasks = () => {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+            } catch (e) {
+                showToast('本地存储失败', 'error');
+            }
+        };
+
+        // =====================
+        // Filtering & Sorting
+        // =====================
+        const getFilteredTasks = () => {
+            let result = [...tasks];
+            
+            // Filter by status
+            if (currentFilter === 'active') result = result.filter(t => !t.completed);
+            else if (currentFilter === 'completed') result = result.filter(t => t.completed);
+            
+            // Filter by search
+            if (searchQuery.trim()) {
+                const q = searchQuery.toLowerCase();
+                result = result.filter(t => 
+                    t.title.toLowerCase().includes(q) || 
+                    (t.description && t.description.toLowerCase().includes(q)) ||
+                    (t.tags && t.tags.some(tag => tag.toLowerCase().includes(q)))
+                );
+            }
+            
+            // Sort
+            result.sort((a, b) => {
+                if (currentSort === 'newest') return b.createdAt - a.createdAt;
+                if (currentSort === 'deadline') {
+                    if (!a.deadline) return 1;
+                    if (!b.deadline) return -1;
+                    return new Date(a.deadline) - new Date(b.deadline);
+                }
+                if (currentSort === 'priority') {
+                    const priorityOrder = { high: 0, medium: 1, low: 2 };
+                    return priorityOrder[a.priority] - priorityOrder[b.priority];
+                }
+                return 0;
+            });
+            
+            return result;
+        };
+
+        // =====================
+        // Rendering
+        // =====================
+        const renderTasks = () => {
+            const container = document.getElementById('taskList');
+            const emptyState = document.getElementById('emptyState');
+            const filtered = getFilteredTasks();
+            
+            if (filtered.length === 0) {
+                container.innerHTML = '';
+                emptyState.classList.remove('hidden');
+                return;
+            }
+            
+            emptyState.classList.add('hidden');
+            container.innerHTML = filtered.map((task, index) => `
+                <div class="task-item bg-white rounded-2xl shadow-sm border border-slate-100 p-5 hover:shadow-md transition-all cursor-move animate-fade-in ${task.completed ? 'task-completed' : ''}" 
+                     data-id="${task.id}" draggable="true" style="animation-delay: ${index * 0.05}s">
+                    <div class="flex items-start gap-4">
+                        <!-- Drag Handle -->
+                        <div class="drag-handle pt-1 text-slate-300 hover:text-slate-400 cursor-grab active:cursor-grabbing">
+                            <i class="fas fa-grip-vertical"></i>
+                        </div>
+                        
+                        <!-- Checkbox -->
+                        <div class="pt-0.5">
+                            <input type="checkbox" class="custom-checkbox" 
+                                   ${task.completed ? 'checked' : ''} 
+                                   onchange="window.app.toggleTask('${task.id}')">
+                        </div>
+                        
+                        <!-- Content -->
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-start justify-between gap-3 mb-1.5">
+                                <h3 class="task-title text-base font-semibold text-slate-800 truncate">${escapeHtml(task.title)}</h3>
+                                <div class="flex items-center gap-2 flex-shrink-0">
+                                    <span class="px-2.5 py-1 text-xs font-medium rounded-lg ${getPriorityClass(task.priority)}">
+                                        ${getPriorityLabel(task.priority)}
+                                    </span>
+                                </div>
+                            </div>
+                            
+                            ${task.description ? `<p class="task-desc text-sm text-slate-500 mb-3 line-clamp-2">${escapeHtml(task.description)}</p>` : ''}
+                            
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3 flex-wrap">
+                                    ${task.deadline ? `
+                                        <span class="flex items-center gap-1.5 text-xs ${getDeadlineClass(task.deadline, task.completed)}">
+                                            <i class="fas ${getDeadlineIcon(task.deadline, task.completed)}"></i>
+                                            ${formatDate(task.deadline)}
+                                        </span>
+                                    ` : ''}
+                                    ${task.tags && task.tags.length > 0 ? `
+                                        <div class="flex items-center gap-1.5">
+                                            ${task.tags.map(tag => `<span class="px-2 py-0.5 text-xs rounded-md border ${getTagColor(tag)}">${escapeHtml(tag)}</span>`).join('')}
+                                        </div>
+                                    ` : ''}
+                                </div>
+                                <div class="flex items-center gap-1">
+                                    <button onclick="window.app.editTask('${task.id}')" 
+                                            class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-blue-500 hover:bg-blue-50 transition-all tooltip" data-tip="编辑">
+                                        <i class="fas fa-pen text-sm"></i>
+                                    </button>
+                                    <button onclick="window.app.confirmDelete('${task.id}')" 
+                                            class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all tooltip" data-tip="删除">
+                                        <i class="fas fa-trash text-sm"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+            
+            setupDragAndDrop();
+        };
+
+        const escapeHtml = (text) => {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        };
+
+        const updateStats = () => {
+            const total = tasks.length;
+            const completed = tasks.filter(t => t.completed).length;
+            const inProgress = total - completed;
+            const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+            
+            // Animate numbers
+            animateNumber('statTotal', total);
+            animateNumber('statInProgress', inProgress);
+            animateNumber('statCompleted', completed);
+            
+            // Update badges
+            document.getElementById('badgeAll').textContent = total;
+            document.getElementById('badgeActive').textContent = inProgress;
+            document.getElementById('badgeCompleted').textContent = completed;
+            
+            // Update progress ring
+            const circumference = 2 * Math.PI * 26; // r=26
+            const offset = circumference - (percent / 100) * circumference;
+            document.getElementById('progressCircle').style.strokeDashoffset = offset;
+            document.getElementById('progressPercent').textContent = percent + '%';
+            
+            // Progress text
+            const texts = [
+                { max: 0, text: '开始行动吧！' },
+                { max: 25, text: '不错的开始！' },
+                { max: 50, text: '继续加油！' },
+                { max: 75, text: '快要完成了！' },
+                { max: 99, text: '最后冲刺！' },
+                { max: 100, text: '太棒了！全部完成！' }
+            ];
+            const progressText = texts.find(t => percent <= t.max)?.text || '';
+            document.getElementById('progressText').textContent = progressText;
+        };
+
+        const animateNumber = (elementId, target) => {
+            const el = document.getElementById(elementId);
+            const current = parseInt(el.textContent) || 0;
+            if (current === target) return;
+            
+            el.classList.add('animate-count');
+            el.textContent = target;
+            setTimeout(() => el.classList.remove('animate-count'), 400);
+        };
+
+        // =====================
+        // Drag & Drop
+        // =====================
+        const setupDragAndDrop = () => {
+            const items = document.querySelectorAll('.task-item');
+            
+            items.forEach(item => {
+                item.addEventListener('dragstart', (e) => {
+                    draggedItem = item;
+                    item.classList.add('dragging');
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', item.dataset.id);
+                });
+                
+                item.addEventListener('dragend', () => {
+                    item.classList.remove('dragging');
+                    draggedItem = null;
+                    document.querySelectorAll('.task-item').forEach(i => i.classList.remove('drag-over'));
+                });
+                
+                item.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                });
+                
+                item.addEventListener('dragenter', (e) => {
+                    e.preventDefault();
+                    if (item !== draggedItem) {
+                        item.classList.add('drag-over');
+                    }
+                });
+                
+                item.addEventListener('dragleave', () => {
+                    item.classList.remove('drag-over');
+                });
+                
+                item.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    item.classList.remove('drag-over');
+                    
+                    if (!draggedItem || item === draggedItem) return;
+                    
+                    const draggedId = draggedItem.dataset.id;
+                    const targetId = item.dataset.id;
+                    
+                    // Reorder in array
+                    const draggedIndex = tasks.findIndex(t => t.id === draggedId);
+                    const targetIndex = tasks.findIndex(t => t.id === targetId);
+                    
+                    if (draggedIndex !== -1 && targetIndex !== -1) {
+                        const [removed] = tasks.splice(draggedIndex, 1);
+                        tasks.splice(targetIndex, 0, removed);
+                        saveTasks();
+                        renderTasks();
+                        showToast('任务顺序已更新');
+                    }
+                });
+            });
+        };
+
+        // =====================
+        // Confetti
+        // =====================
+        const fireConfetti = () => {
+            const canvas = document.getElementById('confetti-canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            
+            const particles = [];
+            const colors = ['#3b82f6', '#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+            
+            for (let i = 0; i < 100; i++) {
+                particles.push({
+                    x: Math.random() * canvas.width,
+                    y: -20,
+                    vx: (Math.random() - 0.5) * 8,
+                    vy: Math.random() * 5 + 2,
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    size: Math.random() * 8 + 4,
+                    rotation: Math.random() * 360,
+                    rotationSpeed: (Math.random() - 0.5) * 10
+                });
+            }
+            
+            let animationId;
+            const animate = () => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                let active = false;
+                particles.forEach(p => {
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    p.vy += 0.15;
+                    p.rotation += p.rotationSpeed;
+                    
+                    if (p.y < canvas.height + 20) active = true;
+                    
+                    ctx.save();
+                    ctx.translate(p.x, p.y);
+                    ctx.rotate(p.rotation * Math.PI / 180);
+                    ctx.fillStyle = p.color;
+                    ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size);
+                    ctx.restore();
+                });
+                
+                if (active) {
+                    animationId = requestAnimationFrame(animate);
+                } else {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                }
+            };
+            
+            animate();
+            setTimeout(() => cancelAnimationFrame(animationId), 3000);
+        };
+
+        // =====================
+        // Toast
+        // =====================
+        const showToast = (message, type = 'success') => {
+            const toast = document.getElementById('toast');
+            const icon = document.getElementById('toastIcon');
+            const msg = document.getElementById('toastMessage');
+            
+            msg.textContent = message;
+            icon.className = type === 'error' ? 'fas fa-times-circle text-red-400' : 'fas fa-check-circle text-green-400';
+            
+            toast.classList.remove('hidden');
+            setTimeout(() => toast.classList.add('hidden'), 3000);
+        };
+
+        // =====================
+        // Modal
+        // =====================
+        const openModal = (editTask = null) => {
+            const modal = document.getElementById('taskModal');
+            const title = document.getElementById('modalTitle');
+            const submitText = document.getElementById('submitBtnText');
+            
+            // Reset form
+            document.getElementById('taskForm').reset();
+            document.getElementById('taskId').value = '';
+            document.querySelectorAll('.tag-item').forEach(t => t.classList.remove('ring-2', 'ring-offset-1', 'ring-blue-500'));
+            document.getElementById('selectedTags').value = '';
+            
+            if (editTask) {
+                title.textContent = '编辑任务';
+                submitText.textContent = '更新任务';
+                document.getElementById('taskId').value = editTask.id;
+                document.getElementById('taskTitle').value = editTask.title;
+                document.getElementById('taskDesc').value = editTask.description || '';
+                document.getElementById('taskDeadline').value = editTask.deadline || '';
+                
+                // Priority
+                const priorityRadio = document.querySelector(`input[name="priority"][value="${editTask.priority}"]`);
+                if (priorityRadio) priorityRadio.checked = true;
+                
+                // Tags
+                if (editTask.tags) {
+                    editTask.tags.forEach(tag => {
+                        const tagEl = document.querySelector(`.tag-item[data-tag="${tag}"]`);
+                        if (tagEl) tagEl.classList.add('ring-2', 'ring-offset-1', 'ring-blue-500');
+                    });
+                    document.getElementById('selectedTags').value = editTask.tags.join(',');
+                }
+            } else {
+                title.textContent = '新建任务';
+                submitText.textContent = '保存任务';
+                // Default deadline to tomorrow
+                const tomorrow = new Date();
+                tomorrow.setDate(tomorrow.getDate() + 1);
+                document.getElementById('taskDeadline').value = tomorrow.toISOString().split('T')[0];
+            }
+            
+            modal.classList.remove('hidden');
+            document.getElementById('taskTitle').focus();
+        };
+
+        const closeModal = () => {
+            document.getElementById('taskModal').classList.add('hidden');
+        };
+
+        // =====================
+        // Task Operations
+        // =====================
+        const toggleTask = (id) => {
+            const task = tasks.find(t => t.id === id);
+            if (!task) return;
+            
+            task.completed = !task.completed;
+            saveTasks();
+            renderTasks();
+            updateStats();
+            
+            if (task.completed) {
+                showToast('任务已完成！');
+                // Check if all completed
+                if (tasks.length > 0 && tasks.every(t => t.completed)) {
+                    fireConfetti();
+                }
+            } else {
+                showToast('任务已恢复');
+            }
+        };
+
+        const editTask = (id) => {
+            const task = tasks.find(t => t.id === id);
+            if (task) openModal(task);
+        };
+
+        const confirmDelete = (id) => {
+            deleteTargetId = id;
+            document.getElementById('deleteModal').classList.remove('hidden');
+        };
+
+        const deleteTask = () => {
+            if (!deleteTargetId) return;
+            tasks = tasks.filter(t => t.id !== deleteTargetId);
+            saveTasks();
+            renderTasks();
+            updateStats();
+            deleteTargetId = null;
+            document.getElementById('deleteModal').classList.add('hidden');
+            showToast('任务已删除');
+        };
+
+        const saveTaskFromForm = (e) => {
+            e.preventDefault();
+            
+            const id = document.getElementById('taskId').value;
+            const title = document.getElementById('taskTitle').value.trim();
+            const description = document.getElementById('taskDesc').value.trim();
+            const priority = document.querySelector('input[name="priority"]:checked').value;
+            const deadline = document.getElementById('taskDeadline').value;
+            const tagsStr = document.getElementById('selectedTags').value;
+            const tags = tagsStr ? tagsStr.split(',').filter(Boolean) : [];
+            
+            if (!title) {
+                document.getElementById('taskTitle').classList.add('animate-shake');
+                setTimeout(() => document.getElementById('taskTitle').classList.remove('animate-shake'), 400);
+                return;
+            }
+            
+            if (id) {
+                // Update
+                const task = tasks.find(t => t.id === id);
+                if (task) {
+                    Object.assign(task, { title, description, priority, deadline, tags });
+                    showToast('任务已更新');
+                }
+            } else {
+                // Create
+                tasks.unshift({
+                    id: generateId(),
+                    title,
+                    description,
+                    priority,
+                    deadline,
+                    tags,
+                    completed: false,
+                    createdAt: Date.now()
+                });
+                showToast('任务已创建');
+            }
+            
+            saveTasks();
+            renderTasks();
+            updateStats();
+            closeModal();
+        };
+
+        // =====================
+        // Export / Clear
+        // =====================
+        const exportTasks = () => {
+            const data = JSON.stringify(tasks, null, 2);
+            const blob = new Blob([data], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `tasks_backup_${new Date().toISOString().split('T')[0]}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast('任务已导出');
+        };
+
+        const clearAllTasks = () => {
+            if (confirm('确定要清空所有任务吗？此操作无法撤销！')) {
+                tasks = [];
+                saveTasks();
+                renderTasks();
+                updateStats();
+                showToast('所有任务已清空');
+            }
+        };
+
+        // =====================
+        // Date & Greeting
+        // =====================
+        const updateDateDisplay = () => {
+            const now = new Date();
+            const options = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
+            document.getElementById('currentDate').textContent = now.toLocaleDateString('zh-CN', options);
+            
+            const hour = now.getHours();
+            let greeting = '晚上好';
+            if (hour < 12) greeting = '早上好';
+            else if (hour < 18) greeting = '下午好';
+            document.getElementById('greeting').textContent = greeting + '，祝你高效完成今日任务！';
+        };
+
+        // =====================
+        // Event Listeners
+        // =====================
+        const init = () => {
+            loadTasks();
+            renderTasks();
+            updateStats();
+            updateDateDisplay();
+            
+            // Filter tabs
+            document.querySelectorAll('.filter-tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    document.querySelectorAll('.filter-tab').forEach(t => {
+                        t.classList.remove('active', 'bg-white', 'text-slate-800', 'shadow-sm');
+                        t.classList.add('text-slate-500');
+                    });
+                    tab.classList.add('active', 'bg-white', 'text-slate-800', 'shadow-sm');
+                    tab.classList.remove('text-slate-500');
+                    currentFilter = tab.dataset.filter;
+                    renderTasks();
+                });
+            });
+            
+            // Search
+            document.getElementById('searchInput').addEventListener('input', (e) => {
+                searchQuery = e.target.value;
+                renderTasks();
+            });
+            
+            // Sort
+            document.getElementById('sortSelect').addEventListener('change', (e) => {
+                currentSort = e.target.value;
+                renderTasks();
+            });
+            
+            // Add task
+            document.getElementById('addTaskBtn').addEventListener('click', () => openModal());
+            
+            // Modal
+            document.getElementById('closeModal').addEventListener('click', closeModal);
+            document.getElementById('cancelBtn').addEventListener('click', closeModal);
+            document.getElementById('modalOverlay').addEventListener('click', closeModal);
+            document.getElementById('taskForm').addEventListener('submit', saveTaskFromForm);
+            
+            // Tags selection
+            document.querySelectorAll('.tag-item').forEach(tag => {
+                tag.addEventListener('click', () => {
+                    tag.classList.toggle('ring-2');
+                    tag.classList.toggle('ring-offset-1');
+                    tag.classList.toggle('ring-blue-500');
+                    
+                    const selected = Array.from(document.querySelectorAll('.tag-item.ring-2')).map(t => t.dataset.tag);
+                    document.getElementById('selectedTags').value = selected.join(',');
+                });
+            });
+            
+            // Delete modal
+            document.getElementById('cancelDelete').addEventListener('click', () => {
+                deleteTargetId = null;
+                document.getElementById('deleteModal').classList.add('hidden');
+            });
+            document.getElementById('confirmDelete').addEventListener('click', deleteTask);
+            
+            // Export & Clear
+            document.getElementById('exportBtn').addEventListener('click', exportTasks);
+            document.getElementById('clearAllBtn').addEventListener('click', clearAllTasks);
+            
+            // Keyboard shortcuts
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    closeModal();
+                    document.getElementById('deleteModal').classList.add('hidden');
+                }
+                if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+                    e.preventDefault();
+                    openModal();
+                }
+            });
+            
+            // Window resize for canvas
+            window.addEventListener('resize', () => {
+                const canvas = document.getElementById('confetti-canvas');
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            });
+        };
+
+        // Expose API
+        window.app = { toggleTask, editTask, confirmDelete };
+        
+        // Start
+        init();
+    })();
+    </script>
+</body>
+</html>
