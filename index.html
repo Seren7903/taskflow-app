@@ -1130,10 +1130,12 @@
         // Event Listeners
         // =====================
         const init = () => {
-            loadTasks();
-            renderTasks();
-            updateStats();
-            updateDateDisplay();
+            try {
+                console.log('[TaskFlow] init() started');
+                loadTasks();
+                renderTasks();
+                updateStats();
+                updateDateDisplay();
             
             // Filter tabs
             document.querySelectorAll('.filter-tab').forEach(tab => {
@@ -1229,6 +1231,11 @@
                 canvas.width = window.innerWidth;
                 canvas.height = window.innerHeight;
             });
+            console.log('[TaskFlow] init() completed successfully');
+            } catch (err) {
+                console.error('[TaskFlow] init() failed:', err);
+                console.error('[TaskFlow] Error stack:', err.stack);
+            }
         };
 
         // =====================
